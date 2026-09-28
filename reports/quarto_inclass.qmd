@@ -1,0 +1,171 @@
+---
+title: "CHL5233: Quarto in-class assignment"
+author: "Daniel Guo"
+subtitle: "Countries by region and sub-region"
+fontsize: 10pt
+format:
+  pdf:
+    pdf-engine: xelatex
+    geometry:
+      - top=30mm
+      - left=20mm
+      - heightrounded
+    colorlinks: true
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+```
+
+## Read in data and create an analytical data set
+
+The supplied files describe the study country list and geographic classifications.
+The files are stored in `data/raw/` in this project; paths below are relative to
+this report in `reports/`.
+
+```{r}
+#| label: read-countries
+#| echo: true
+countries <- read.table("data/raw/countries.txt", header = TRUE)
+dim(countries)
+```
+
+The countries data set contains **`r nrow(countries)` countries** and
+**`r ncol(countries)` columns**. The supplied country list contains 186 distinct ISO
+codes. This report uses all countries in the supplied file.
+
+```{r}
+#| label: read-regions
+regions <- read.table("data/raw/regions.txt", header = TRUE)
+dim(regions)
+```
+
+The regions data set contains **`r nrow(regions)` country or territory entries**
+and **`r ncol(regions)` columns**.
+
+We match the three-letter ISO codes, avoiding differences in country names.
+`semi_join()` retains only entries in `regions` whose codes occur in `countries`.
+
+```{r}
+#| label: analytical-data
+study_regions <- regions |>
+  semi_join(countries, by = c("country_code" = "ISO"))
+
+nrow(study_regions)
+```
+
+```{r}
+#| include: false
+# Check unique identifiers, complete matching and region labels.
+stopifnot(
+  !anyDuplicated(countries$ISO),
+  !anyDuplicated(regions$country_code),
+  all(countries$ISO %in% regions$country_code),
+  nrow(study_regions) == nrow(countries),
+  all(!is.na(study_regions$region) & study_regions$region != ""),
+  all(!is.na(study_regions$sub_region) & study_regions$sub_region != "")
+)
+nrow(study_regions)
+```
+
+All **`r nrow(study_regions)` countries** matched a geographic entry; none were
+lost or duplicated in the match.
+
+\newpage
+
+## Tabulate countries by region and sub-region
+
+```{r}
+#| label: region-table
+region_counts <- study_regions |>
+  group_by(region) |>
+  summarise(count = n(), .groups = "drop") |>
+  arrange(desc(count), region)
+
+kable(region_counts, col.names = c("Region", "Count"),
+      caption = "Study countries by region", booktabs = TRUE, label = NA) |>
+  kable_styling(latex_options = "HOLD_position")
+```
+
+\newpage
+
+### Countries by sub-region
+
+```{r}
+#| label: sub-region-table
+subregion_counts <- study_regions |>
+  group_by(region, sub_region) |>
+  summarise(count = n(), .groups = "drop") |>
+  arrange(desc(count), sub_region)
+
+kable(select(subregion_counts, sub_region, count),
+      col.names = c("Sub-region", "Count"),
+      caption = "Study countries by sub-region", booktabs = TRUE, label = NA) |>
+  kable_styling(latex_options = "HOLD_position")
+```
+
+```{r}
+#| include: false
+stopifnot(sum(region_counts$count) == nrow(countries),
+          sum(subregion_counts$count) == nrow(countries))
+```
+
+Both tables total **`r sum(region_counts$count)` countries**. Africa has the
+largest regional count (54), and Sub-Saharan Africa has the largest
+sub-regional count (48).
+
+\newpage
+
+## Data visualization using ggplot
+
+The regional chart summarizes the overall distribution. Each bar counts
+individual countries in the analytical data set.
+
+```{r}
+#| label: region-chart
+#| fig-width: 7
+#| fig-height: 3.5
+#| fig-cap: "Number of study countries in each region."
+ggplot(study_regions,
+       aes(x = fct_infreq(region))) +
+  geom_bar(fill = "#287D8E", width = 0.7) +
+  labs(x = "Region", y = "Number of countries") +
+  scale_y_continuous(breaks = seq(0, 60, 10)) +
+  theme_minimal(base_size = 11) +
+  theme(panel.grid.major.x = element_blank())
+```
+
+\newpage
+
+The sub-regional chart uses horizontal bars, colored by region. Reversing the
+frequency ordering places the largest count at the top.
+
+```{r}
+#| label: sub-region-chart
+#| fig-width: 7.2
+#| fig-height: 4.8
+#| fig-cap: "Study countries by sub-region, ordered by count and colored by region."
+ggplot(study_regions,
+       aes(x = fct_rev(fct_infreq(sub_region)), fill = region)) +
+  geom_bar(width = 0.75) +
+  coord_flip() +
+  scale_fill_manual(values = c(
+    Africa = "#0072B2", Americas = "#D55E00", Asia = "#009E73",
+    Europe = "#CC79A7", Oceania = "#E69F00"
+  )) +
+  scale_y_continuous(breaks = seq(0, 50, 10)) +
+  labs(x = "Sub-region", y = "Number of countries", fill = "Region") +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "bottom",
+        panel.grid.major.y = element_blank())
+```
+
+These counts describe geographic representation in the supplied list, rather
+than the number or severity of armed conflicts.
