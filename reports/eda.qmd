@@ -8,9 +8,6 @@ execute:
   message: false
 ---
 
-library(tidyverse) 
-library(knitr)
-
 ```{r}
 #| label: setup
 #| include: false
@@ -21,140 +18,84 @@ project_root <- if (file.exists("data/raw/conflict.csv")) "." else ".."
 conflict <- read.csv(file.path(project_root, "data/raw/conflict.csv"))
 ```
 
+I want to describe how the number of distinct recorded conflicts changes over time and assess whether reporting differences could affect the pattern.
+
 ## Review of the files and earlier work
 
-I reviewed `README.md`, `scripts/create_final_data.R`, and the existing reports. The README describes preparation of an analytical dataset for an armed-conflict paper, but does not provide a codebook, source citation, or data-release version. The earlier R script combines mortality, disasters, conflict exposure, and covariates into a country-year panel. The raw file `data/raw/conflict.csv` is the relevant dataset for counting distinct conflicts. The processed `final_data.csv` contains only a binary lagged exposure, so it cannot recover the number of conflicts in a year.
+```{r}
+library(tidyverse)
+conflict <- read.csv(file.path(project_root, "data/raw/conflict.csv"))
+glimpse(conflict)
+summary(conflict)
+```
 
-The raw conflict file has four fields: `conflict_id`, `iso`, `year`, and `best`. The earlier code treats `best` as deaths, sums it within country, year, and conflict ID, and defines exposure when at least one such conflict has 25 or more deaths. It then assigns that exposure to the next year. This is the definition implemented in the earlier work; the files do not establish the source's full substantive definition of armed conflict or which conflict types are included.
-
-Each raw row is a record associated with a country and year, usually with a conflict ID and death estimate. Multiple records can share these fields. Without event identifiers or source documentation, I cannot confirm that each row represents a unique event, distinguish true duplicate events from separate events with the same death count, or explain records without conflict IDs. I therefore count **distinct recorded conflict IDs per year**, regardless of death threshold, as the main descriptive measure. This is neither a count of new conflict onsets nor necessarily the number meeting the earlier 25-death rule. A conflict appearing in several countries in the same year counts once.
+I reviewed the README and earlier data-preparation script to refresh my understanding of the project. I selected conflict.csv because it contains conflict identifiers and years, which are needed to count distinct conflicts over time. The earlier script treats best as deaths and applies a 25-death threshold within each country-year-conflict group. However, no codebook was available to confirm the exact meaning of each raw record or the source’s definition of armed conflict.
 
 ## Missing values and repeated records
-
 ```{r}
-#| label: data-quality
-library(tidyverse)
-library(knitr)
-quality <- tibble(
-  check = c("Total records", "Missing year", "Missing conflict ID",
-            "Missing or blank ISO", "Missing death estimate",
-            "Repeated rows across all four available fields",
-            "Repeated year/conflict-ID pairs among identified records"),
-  count = c(nrow(conflict), sum(is.na(conflict$year)),
-            sum(is.na(conflict$conflict_id)),
-            sum(is.na(conflict$iso) | trimws(conflict$iso) == ""),
-            sum(is.na(conflict$best)), sum(duplicated(conflict)),
-            sum(duplicated(conflict[!is.na(conflict$conflict_id),
-                                    c("year", "conflict_id")])))
-)
-kable(quality, col.names = c("Check", "Number"))
-
-identified <- conflict |>
-  filter(!is.na(year), !is.na(conflict_id))
-conflict_years <- identified |> distinct(year, conflict_id)
-stopifnot(!anyDuplicated(conflict_years))
+conflict |>
+  summarise(
+    missing_year = sum(is.na(year)),
+    missing_id = sum(is.na(conflict_id)),
+    repeated_rows = sum(duplicated(conflict))
+  )
 ```
 
-There are **`r format(nrow(conflict), big.mark = ',')` records**. Years and ISO codes are complete, but **`r sum(is.na(conflict$conflict_id))` records lack a conflict ID**. All of these also lack `best`; all identified records have a death estimate. Missing IDs cannot be assigned to distinct conflicts and are excluded from conflict counts, but retained when describing record coverage.
-
-There are **`r format(sum(duplicated(conflict)), big.mark = ',')` repeated rows** when comparing the four available fields. These are not proven duplicate events: different events could have identical recorded fields. I do not delete them from the raw data or use their frequency as a count of conflicts. Taking unique year/ID pairs makes the main counts insensitive to repeated records and to multi-country appearances of the same ID.
+I checked the year and conflict identifier fields for missing values and examined repeated rows. There were no missing years, but 2,696 records had missing conflict identifiers. These records were excluded from the distinct-conflict counts because they could not be assigned to an identifiable conflict. Many rows shared the same recorded values, but these were not necessarily duplicate events. I therefore retained the raw data and prevented repeated records from inflating the counts by counting each conflict identifier only once per year.
 
 ## Annual counts and line graph
-
 ```{r}
-#| label: annual-counts
+annual <- conflict |>
+  filter(!is.na(year), !is.na(conflict_id)) |>
+  distinct(year, conflict_id) |>
+  count(year, name = "conflicts") |>
+  arrange(year)
 
-library(tidyverse)
-library(knitr)
-years <- tibble(year = seq(min(conflict$year), max(conflict$year)))
-annual <- conflict_years |> count(year, name = "distinct_conflicts")
-annual <- years |> left_join(annual, by = "year") |>
-  mutate(distinct_conflicts = replace_na(distinct_conflicts, 0L),
-         change = distinct_conflicts - lag(distinct_conflicts))
-kable(annual, col.names = c("Year", "Distinct recorded conflicts", "Annual change"))
-stopifnot(sum(annual$distinct_conflicts) == nrow(conflict_years))
+annual
 ```
 
+I counted the distinct conflict identifiers recorded in each year. A conflict appearing in multiple records or countries within the same year was counted once. This measures the number of recorded conflict IDs, rather than the number of events, new conflict onsets, or conflicts meeting the earlier 25-death threshold.
+
 ```{r}
-#| label: conflict-trend
-#| fig-width: 8
-#| fig-height: 4.5
-#| fig-cap: "Distinct recorded conflict IDs per calendar year, 1999–2018. Repeated records and appearances in multiple countries count once per year."
-library(tidyverse)
-library(knitr)
-ggplot(annual, aes(year, distinct_conflicts)) +
-  geom_line(color = "#236B8E", linewidth = 0.8) +
-  geom_point(color = "#236B8E", size = 2) +
-  scale_x_continuous(breaks = seq(1999, 2018, 2)) +
-  scale_y_continuous(limits = c(0, NA)) +
-  labs(x = "Calendar year", y = "Distinct recorded conflict IDs") +
-  theme_minimal(base_size = 12)
+ggplot(annual, aes(year, conflicts)) +
+  geom_line() +
+  geom_point() +
+  labs(
+    x = "Year",
+    y = "Distinct recorded conflicts"
+  ) +
+  theme_minimal()
 ```
 
-The recorded count rises from **`r annual$distinct_conflicts[1]` in 1999** to **`r tail(annual$distinct_conflicts, 1)` in 2018**. It fluctuates early in the series, reaches a minimum of **`r min(annual$distinct_conflicts)` in `r annual$year[which.min(annual$distinct_conflicts)]`**, and increases substantially after 2010. The maximum is **`r max(annual$distinct_conflicts)` in `r annual$year[which.max(annual$distinct_conflicts)]`**. These observations describe recorded identifiers, not a demonstrated change in the underlying incidence or severity of conflict.
-
-The file ends in 2018. I do not append a zero for 2019: unavailable coverage is not evidence of no conflicts. The extra 1999 source year supports the earlier analytical panel's one-year lag for outcomes in 2000.
+I created a line graph showing annual counts of distinct recorded conflicts from 1999 to 2018. Counts fluctuated during the earlier years, reaching a minimum of 158 in 2010, before generally increasing to a peak of 296 in 2017. The largest annual increase occurred in 2014, when the count rose by 45. These patterns describe the available records; further investigation is needed to determine whether they reflect changes in conflict activity, reporting, or classification.
 
 ## Investigating unusual changes and coverage
 
+Find the largest annual change
 ```{r}
-#| label: coverage-diagnostics
-library(tidyverse)
-library(knitr)
-coverage <- conflict |> group_by(year) |>
-  summarise(records = n(), missing_ids = sum(is.na(conflict_id)),
-            missing_id_pct = 100 * mean(is.na(conflict_id)), .groups = "drop")
-country_coverage <- identified |> group_by(year) |>
-  summarise(countries_with_identified_records = n_distinct(iso), .groups = "drop")
-coverage <- annual |>
-  left_join(coverage, by = "year") |>
-  left_join(country_coverage, by = "year")
-kable(coverage, digits = 2,
-      col.names = c("Year", "Conflicts", "Change", "Records", "Missing IDs",
-                    "Missing ID (%)", "Countries with identified records"))
-
-largest_changes <- annual |> filter(!is.na(change)) |>
-  arrange(desc(abs(change)), year) |> slice_head(n = 4)
-turnover <- map_dfr(largest_changes$year, function(y) {
-  previous <- conflict_years$conflict_id[conflict_years$year == y - 1L]
-  current <- conflict_years$conflict_id[conflict_years$year == y]
-  tibble(year = y, added_since_previous_year = length(setdiff(current, previous)),
-         absent_from_current_year = length(setdiff(previous, current)))
-})
-kable(largest_changes |> left_join(turnover, by = "year"),
-      col.names = c("Year", "Conflicts", "Net change", "IDs added", "IDs absent"))
+annual |>
+  mutate(change = conflicts - lag(conflicts)) |>
+  arrange(desc(abs(change)))
 ```
 
-The largest absolute annual increase is **`r max(annual$change, na.rm = TRUE)` in `r annual$year[which.max(annual$change)]`**; the largest decrease is **`r min(annual$change, na.rm = TRUE)` in `r annual$year[which.min(annual$change)]`**. The turnover table shows whether net changes combine additions and disappearances. An ID added relative to the previous year could be a new conflict, a resumption, a coding change, or newly reported activity; an absent ID does not by itself establish that a conflict ended.
+we can observe that the largest annual change occurs
+in year 2014 by 45
 
-The jump in raw records from 7,682 in 2011 to 18,443 in 2012 is much larger proportionally than the rise from 173 to 203 distinct conflicts. Record volume then peaks in 2014 and declines, while distinct conflicts continue to rise through 2017. This shows why record counts would give a different trend. Countries with identified records fall from 52 in 2011 to 50 in 2012 and 45 in 2014, so the increase does not simply coincide with more represented countries. However, represented countries measure observed activity as well as possible reporting coverage; they are not a verified surveillance denominator.
-
-Missing-ID records range from 125 to 143 per year. Their fairly stable count does not explain the later rise in identified conflicts, but it cannot rule out reporting changes. There is no source-version history, reporting-completeness flag, event description, or documentation of coding changes in this extract. Consequently, these diagnostics cannot separate actual conflict activity from changes in reporting, detection, or assignment of IDs.
-
-## Sensitivity to the earlier exposure definition
-
+examine record volume, missing IDs, and represented countries
 ```{r}
-#| label: threshold-sensitivity
-# Match the earlier script: threshold each country/year/conflict total.
-library(tidyverse)
-library(knitr)
-qualifying <- identified |>
-  group_by(iso, year, conflict_id) |>
-  summarise(deaths = sum(best), .groups = "drop") |>
-  filter(deaths >= 25) |>
-  distinct(year, conflict_id) |>
-  count(year, name = "conflicts_meeting_prior_rule")
-sensitivity <- annual |> select(year, distinct_conflicts) |>
-  left_join(qualifying, by = "year") |>
-  mutate(conflicts_meeting_prior_rule = replace_na(conflicts_meeting_prior_rule, 0L))
-kable(sensitivity, col.names = c("Year", "All recorded IDs",
-                                "IDs meeting prior country-specific 25-death rule"))
+conflict |>
+  group_by(year) |>
+  summarise(
+    records = n(),
+    missing_ids = sum(is.na(conflict_id)),
+    countries_with_identified_records =
+      n_distinct(iso[!is.na(conflict_id)], na.rm = TRUE)
+  )
 ```
 
-The second count includes an ID only if it meets the earlier threshold in at least one country that year. It is a sensitivity description, not a replacement for the main distinct-ID count. Its death sums assume the repeated records are legitimate contributions, as the earlier script does. Without event-level keys, I cannot verify that assumption or safely remove repeated rows before summing.
+I compared annual conflict counts with the number of records, missing conflict identifiers, and countries represented. Between 2011 and 2012, the number of records increased from 7,682 to 18,443, while distinct conflicts increased from 173 to 203. Record volume then declined after 2014, although distinct conflicts continued to increase through 2017. This shows that more records do not necessarily mean more distinct conflicts. Missing identifiers remained relatively stable, and the increases did not consistently coincide with more countries being represented. However, these checks cannot determine whether the changes reflect actual conflict activity or differences in reporting. Source documentation and information about coding changes would be needed to investigate further.
 
 ## Observations and next steps
 
-Distinct recorded conflicts generally increase after 2010, although record volume and geographic representation follow different patterns. The main count avoids inflation from repeated records, but depends on IDs being stable across countries and over time. The available files cannot confirm that stability.
-
-Before interpreting the trend as changing conflict activity, I would obtain the original codebook and release information, confirm row meaning and the scope of conflict types, and examine documentation of reporting changes around 2012, 2014, and 2017. I would also investigate IDs entering or leaving those years using conflict descriptions and event identifiers. Those fields are absent here, so causal explanations for the jumps remain unresolved. No raw or processed data were changed during this EDA.
+The number of distinct recorded conflicts fluctuated during the earlier years and generally increased after 2010, reaching its highest level in 2017. Counting each conflict identifier once per year prevented repeated records from inflating the totals. However, the available data cannot establish whether these trends reflect changes in conflict activity, reporting coverage, or classification.
+My next step would be to obtain the original codebook to confirm what each row represents, how armed conflict is defined, and whether conflict identifiers remain consistent over time. I would also investigate the larger increases in 2012, 2014, and 2017 by examining which identifiers appeared or disappeared and checking for documented changes in reporting or coding.
