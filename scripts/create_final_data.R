@@ -1,10 +1,10 @@
 library(tidyverse)
 
 # 1. Read the four World Bank datasets
-matmor <- read.csv("data/original/maternal_mortality.csv")
-infmor <- read.csv("data/original/infant_mortality.csv")
-neomor <- read.csv("data/original/neonatal_mortality.csv")
-un5mor <- read.csv("data/original/under5_mortality.csv")
+matmor <- read.csv("data/raw/maternal_mortality.csv")
+infmor <- read.csv("data/raw/infant_mortality.csv")
+neomor <- read.csv("data/raw/neonatal_mortality.csv")
+un5mor <- read.csv("data/raw/under5_mortality.csv")
 
 # 2. Create a function to change wide data to long data
 prepare_wb <- function(data, outcome_name) {
@@ -48,7 +48,7 @@ write.csv(
 )
 
 # 7. Read and clean disaster data
-disaster <- read.csv("data/original/disaster.csv") |>
+disaster <- read.csv("data/raw/disaster.csv") |>
   janitor::clean_names()
 
 # 8. Keep earthquakes and droughts in 2000–2019
@@ -82,7 +82,7 @@ head(disaster_data)
 count(disaster_data, earthquake, drought)
 
 # 11. Read conflict data
-conflict <- read.csv("data/original/conflict.csv")
+conflict <- read.csv("data/raw/conflict.csv")
 
 # 12. Sum deaths for each conflict within each country and year
 conflict_totals <- conflict |>
@@ -116,7 +116,7 @@ conflict_data <- wb_data |>
   )
 
 # 16. Read the remaining covariates
-covariates <- read.csv("data/original/covariates.csv")
+covariates <- read.csv("data/raw/covariates.csv")
 
 # Check that covariates have one row per country and year
 stopifnot(!anyDuplicated(covariates[c("iso", "year")]))
