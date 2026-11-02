@@ -101,7 +101,7 @@ tab1
 
 tab1 |>
   as_gt() |>
-  gtsave(filename = "Table1.pdf")
+  gtsave(filename = "table01_characteristics_by_armed_conflict.pdf")
 
 getwd()
 
