@@ -145,4 +145,10 @@ write.csv(
   "data/processed/final_data.csv",
   row.names = FALSE
 )
-# test
+
+
+library(naniar)
+finaldata |>
+  arrange(year, iso) |>
+  dplyr::select(-iso, -year) |>
+  vis_miss()
